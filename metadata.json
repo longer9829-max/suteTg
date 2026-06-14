@@ -1,0 +1,6 @@
+{
+  "name": "Messenger App",
+  "description": "A secure real-time messaging application with Google authentication and persistent chat history.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

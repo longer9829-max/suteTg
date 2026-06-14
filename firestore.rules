@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 1. Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 2. User Profiles
+    match /users/{userId} {
+      // Split collection strategy for PII isolation
+      match /public/profile {
+        // Anyone signed in can view public profiles
+        allow read: if isSignedIn();
+        // Only owner can create/update their profile
+        allow create, update: if isOwner(userId) && isValidUserPublic(incoming());
+      }
+      
+      match /private/info {
+        // Only owner can read/write their private info
+        allow read, write: if isOwner(userId) && isValidUserPrivate(incoming());
+      }
+    }
+
+    // 3. Chat Rooms
+    match /chats/{chatId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidChat(incoming()) && incoming().createdBy == request.auth.uid;
+      // Updates are limited to metadata like last message
+      allow update: if isSignedIn() && (
+        (incoming().diff(existing()).affectedKeys().hasOnly(['lastMessageVisible', 'updatedAt']) && 
+         incoming().updatedAt == request.time && 
+         incoming().lastMessageVisible is string && incoming().lastMessageVisible.size() <= 500)
+      );
+
+      // 4. Messages subcollection
+      match /messages/{messageId} {
+        allow read: if isSignedIn();
+        // Messages are immutable: only create is allowed
+        allow create: if isSignedIn() && isValidMessage(incoming(), chatId) && 
+                     incoming().chatId == chatId && 
+                     incoming().senderId == request.auth.uid;
+      }
+    }
+
+    // 5. Validation Blueprints (Pillar 2)
+    function isValidUserPublic(data) {
+      return data.keys().hasAll(['uid', 'displayName']) &&
+             data.keys().size() <= 4 &&
+             data.uid == request.auth.uid &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+             (!data.keys().contains('photoURL') || (data.photoURL is string && data.photoURL.size() <= 2048)) &&
+             (!data.keys().contains('lastSeen') || data.lastSeen == request.time);
+    }
+
+    function isValidUserPrivate(data) {
+      return data.keys().hasAll(['email', 'createdAt']) &&
+             data.keys().size() == 2 &&
+             data.email is string && data.email.size() <= 256 &&
+             data.createdAt == (resource == null ? request.time : existing().createdAt);
+    }
+
+    function isValidChat(data) {
+      return data.keys().hasAll(['name', 'createdBy', 'createdAt']) &&
+             data.keys().size() <= 5 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.createdBy == request.auth.uid &&
+             data.createdAt == request.time &&
+             (!data.keys().contains('updatedAt') || data.updatedAt == request.time) &&
+             (!data.keys().contains('lastMessageVisible') || data.lastMessageVisible is string);
+    }
+
+    function isValidMessage(data, chatId) {
+      return data.keys().hasAll(['text', 'senderId', 'senderName', 'createdAt', 'chatId']) &&
+             data.keys().size() == 5 &&
+             data.text is string && data.text.size() >= 1 && data.text.size() <= 5000 &&
+             data.senderId == request.auth.uid &&
+             data.senderName is string && data.senderName.size() <= 100 &&
+             data.createdAt == request.time &&
+             data.chatId == chatId; // Verify it belongs to the collection it's in
+    }
+  }
+}
