@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType, completeEmailSignIn } from '../lib/firebase';
 
 interface AuthContextType {
   user: User | null;
@@ -15,6 +15,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Handle email link sign-in if returning from email
+    const handleRedirect = async () => {
+      try {
+        await completeEmailSignIn();
+      } catch (error) {
+        console.error("Email link sign-in failed:", error);
+      }
+    };
+    handleRedirect();
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         // Sync user to firestore

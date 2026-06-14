@@ -2,7 +2,10 @@ export interface UserPublic {
   uid: string;
   displayName: string;
   photoURL?: string;
-  lastSeen?: any; // Firestore Timestamp
+  bio?: string;
+  isPremium?: boolean;
+  isAdmin?: boolean;
+  lastSeen?: any;
 }
 
 export interface UserPrivate {
